@@ -25,7 +25,7 @@ that keep a payment integration from losing real money.
 
 **As a personal skill** (Claude Code):
 ```bash
-git clone https://github.com/<your-username>/haiti-payments.git \
+git clone https://github.com/Christerlin/haiti-payments.git \
   ~/.claude/skills/haiti-payments
 ```
 
