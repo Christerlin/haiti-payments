@@ -1,10 +1,10 @@
-# 🇭🇹 haiti-payments — a Claude Code skill for MonCash & Pay'm
+# 🇭🇹 haiti-payments: a Claude Code skill for MonCash & Pay'm
 
 A free, open-source **[Claude Code](https://claude.com/claude-code) skill** that
 teaches Claude how to correctly integrate Haitian mobile-money payments:
 
-- **MonCash native** — Digicel's official API (MonCash only)
-- **Pay'm** — an aggregator for **MonCash + NatCash + Kashpaw**
+- **MonCash native**: Digicel's official API (MonCash only)
+- **Pay'm**: an aggregator for **MonCash + NatCash + Kashpaw**
 
 It covers **cash-in** (collecting payments) and **cash-out** (payouts), with the
 real-world API quirks the official docs get wrong, plus the money-safety patterns
@@ -29,7 +29,7 @@ git clone https://github.com/Christerlin/haiti-payments.git \
   ~/.claude/skills/haiti-payments
 ```
 
-**As part of a project** — drop the folder into your repo under
+**As part of a project**: drop the folder into your repo under
 `.claude/skills/haiti-payments/`, or reference it from your plugin.
 
 Once installed, just ask Claude things like *"add MonCash checkout to my app"* or
@@ -39,20 +39,21 @@ automatically.
 ## Highlights (things that will save you hours)
 
 - Pay'm's auth header is **`x-access-token`**, not `Authorization: Bearer` (docs are wrong → 401).
-- **NatCash rejects decimal amounts** — always send whole gourdes.
-- Pay'm has **no webhook** — you poll; MonCash's **redirect-back is not confirmation** — you verify.
+- **NatCash rejects decimal amounts**, always send whole gourdes.
+- Pay'm's webhook is a **trigger, not proof**, so verify anyway; MonCash's
+  **redirect-back is not confirmation** either.
 - Payouts draw from a **prefunded balance** that must be activated + funded.
-- **Confirm server-side, deliver exactly once** with an atomic claim — the core money-safety rule.
+- **Confirm server-side, deliver exactly once** with an atomic claim: the core money-safety rule.
 
 ## Contributing
 
 PRs welcome. If a provider changes its API or you find a new quirk, update the
 relevant reference file and note the date. **Tested behavior beats the official
-docs** — when they disagree, trust the live API and document it here.
+docs**, when they disagree, trust the live API and document it here.
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and share.
+[MIT](LICENSE): free to use, modify, and share.
 
 ---
 

@@ -1,4 +1,4 @@
-# MonCash Native API (Digicel) — Integration Reference
+# MonCash Native API (Digicel): Integration Reference
 
 Digicel's own MonCash Business/Gateway API. MonCash only. You need a Digicel
 merchant account and API credentials (`clientId` + `clientSecret`). MonCash has a
@@ -31,7 +31,7 @@ integer centimes internally and convert (`amount = cents / 100`) at the API edge
 
 ---
 
-## 2. OAuth — `POST /Api/oauth/token`
+## 2. OAuth: `POST /Api/oauth/token`
 
 HTTP **Basic** auth (base64 of `clientId:clientSecret`), form-encoded body:
 
@@ -44,13 +44,13 @@ Accept: application/json
 scope=read,write&grant_type=client_credentials
 ```
 
-Response: `{ "access_token": "...", "expires_in": 59 }`. Tokens are short-lived —
+Response: `{ "access_token": "...", "expires_in": 59 }`. Tokens are short-lived,
 **cache the token and refresh ~30 s before expiry**. Use it as
 `Authorization: Bearer <access_token>` on all other calls.
 
 ---
 
-## 3. Cash-in — `POST /Api/v1/CreatePayment`
+## 3. Cash-in: `POST /Api/v1/CreatePayment`
 
 ```
 POST /Api/v1/CreatePayment
@@ -60,8 +60,8 @@ Content-Type: application/json
 { "amount": 500.00, "orderId": "ORDER-2026-000123" }
 ```
 
-- `amount` — HTG (decimal).
-- `orderId` — **your** unique id (idempotency key). Reuse your order id.
+- `amount`: HTG (decimal).
+- `orderId`: **your** unique id (idempotency key). Reuse your order id.
 
 Response:
 ```json
@@ -76,7 +76,7 @@ The token is valid ~15 min. The customer approves in the MonCash app / gateway.
 
 ---
 
-## 4. Verify a payment — `POST /Api/v1/RetrieveOrderPayment` (source of truth)
+## 4. Verify a payment: `POST /Api/v1/RetrieveOrderPayment` (source of truth)
 
 **This is the only reliable confirmation.** After the customer returns (or from a
 reconciliation cron), call:
@@ -114,13 +114,13 @@ order-driven flows `RetrieveOrderPayment` is what you want.
   still re-confirm via `RetrieveOrderPayment`. A common hardening pattern is to
   require an HMAC-SHA256 signature over the raw request body using a shared
   secret and compare with `timingSafeEqual` (constant-time). Never trust an
-  unauthenticated "successful" callback — anyone could forge it to self-credit.
+  unauthenticated "successful" callback: anyone could forge it to self-credit.
 - Because a customer can always abandon the redirect, a **reconciliation cron**
   that re-verifies pending orders is mandatory for reliability.
 
 ---
 
-## 6. Cash-out — `POST /Api/v1/Transfert` (prefunded)
+## 6. Cash-out: `POST /Api/v1/Transfert` (prefunded)
 
 Sends HTG to a customer's MonCash account. Debits your **prefunded** MonCash
 balance, so that balance must be funded first.
@@ -134,7 +134,7 @@ Content-Type: application/json
   "reference": "PAYOUT-0001" }
 ```
 
-- `reference` — unique idempotency key for the payout.
+- `reference`: unique idempotency key for the payout.
 - Success ⟺ `transfer.message === "successful"` and `transfer.transaction_id` present:
   ```json
   { "transfer": { "transaction_id": "...", "message": "successful" }, "status": 202 }
@@ -147,14 +147,14 @@ Content-Type: application/json
 
 ## 7. Prefunded status & balance
 
-**Status by reference** — `POST /Api/v1/PrefundedTransactionStatus`
+**Status by reference**: `POST /Api/v1/PrefundedTransactionStatus`
 ```json
 { "reference": "PAYOUT-0001" }
 ```
 → `{ "transStatus": "successful" }`. A **404** means MonCash has no record of that
 reference (i.e. the payout never registered → safe to refund).
 
-**Balance** — `GET /Api/v1/PrefundedBalance` → `{ "balance": { "balance": 1234.5 } }`
+**Balance**: `GET /Api/v1/PrefundedBalance` → `{ "balance": { "balance": 1234.5 } }`
 (HTG). Check it before large payouts.
 
 ---

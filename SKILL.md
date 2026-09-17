@@ -1,13 +1,14 @@
 ---
 name: haiti-payments
 description: >-
-  Integrate Haitian mobile-money payments — MonCash (Digicel's native API) and
-  Pay'm (aggregator for MonCash, NatCash, and Kashpaw) — covering cash-in
-  (collecting payments) and cash-out (payouts) in web, mobile, or backend apps.
+  Integrate Haitian mobile-money payments through MonCash (Digicel's native
+  API) and Pay'm (aggregator for MonCash, NatCash, and Kashpaw), covering
+  cash-in (collecting payments) and cash-out (payouts) in web, mobile, or
+  backend apps.
   Use this whenever the user is building or debugging a payment, checkout,
   top-up, recharge, wallet, subscription, voucher, or payout flow that touches
   MonCash, NatCash, Kashpaw, Pay'm, Digicel money, or accepting/sending money in
-  Haiti or in gourdes (HTG) — even if they don't name the exact provider. Covers
+  Haiti or in gourdes (HTG), even if they don't name the exact provider. Covers
   OAuth, create-payment + redirect, payment verification/polling, HMAC-signed
   withdrawals, prepaid balances, webhooks, idempotency, and the money-safety
   patterns plus real-world API quirks the official docs get wrong.
@@ -19,15 +20,16 @@ license: MIT
 Integrate mobile money in Haiti. Two providers are covered because they solve
 different problems:
 
-- **MonCash native** — Digicel's own API. MonCash only. Official, direct, lower
+- **MonCash native**: Digicel's own API. MonCash only. Official, direct, lower
   fees, but you need a Digicel merchant/business account and API credentials.
   → full reference: [references/moncash-native.md](references/moncash-native.md)
-- **Pay'm** — an aggregator that exposes **MonCash + NatCash + Kashpaw** through
+- **Pay'm**: an aggregator that exposes **MonCash + NatCash + Kashpaw** through
   one API, with a signed payout flow. Easier onboarding, one integration for
-  three rails, but ~3% fee, no sandbox, and no webhooks (you poll).
+  three rails, but ~3% fee and no sandbox. Webhooks arrived in 2026; the
+  convention is below.
   → full reference: [references/paym.md](references/paym.md)
 
-Read the relevant reference file **before** writing integration code — both APIs
+Read the relevant reference file **before** writing integration code, both APIs
 have quirks (wrong auth headers, decimal rules, misspelled fields) that will
 cost you hours if you guess. The details live in the reference files to keep this
 overview short; this page gives you the shared mental model and the safety rules
@@ -42,7 +44,7 @@ that apply to **both**.
 | Which rails do you need? | MonCash only | MonCash **and** NatCash (and/or Kashpaw) |
 | Do you have a Digicel API contract? | Yes | No / not yet |
 | Priority | Lowest fees, official | Fastest to launch, one API for all rails |
-| Need a testing sandbox? | Yes (MonCash has one) | No sandbox exists — test tiny amounts live |
+| Need a testing sandbox? | Yes (MonCash has one) | No sandbox exists: test tiny amounts live |
 
 You can also run **both**: MonCash native for MonCash, Pay'm for NatCash. Keep a
 provider-agnostic `PaymentAdapter` interface (see "Architecture" below) so the
@@ -58,9 +60,10 @@ stop feeling different:
 **Cash-in (you collect money):**
 1. **Create** a payment for `amount` + your unique `reference`/`orderId`.
 2. **Redirect** the customer to the provider's URL; they approve on MonCash/NatCash.
-3. **Confirm** it was actually paid — never trust the redirect back alone.
+3. **Confirm** it was actually paid, never trust the redirect back alone.
    - MonCash native: call `RetrieveOrderPayment` (the source of truth).
-   - Pay'm: **poll** `paiement-verify` (no webhook exists).
+   - Pay'm: their webhook fires on settlement. Treat it as a trigger and still
+     call `paiement-verify` yourself, keeping the poll as the fallback.
 4. **Deliver** the goods exactly once (atomic claim on your order).
 
 **Cash-out (you send money):**
@@ -71,7 +74,7 @@ stop feeling different:
 
 ---
 
-## Money-safety rules (non-negotiable — this is real money)
+## Money-safety rules (non-negotiable: this is real money)
 
 These are the rules that separate a toy from a payment system. They apply to
 both providers and are the most common source of real financial loss.
@@ -82,7 +85,7 @@ both providers and are the most common source of real financial loss.
 - **One `reference` per order, never reused.** This is your idempotency key. It
   lets you retry safely and lets the provider reject duplicates.
 - **Deliver exactly once with an atomic claim.** Before handing over goods:
-  `UPDATE orders SET status='PAID' WHERE id=? AND status='PENDING'` — if it
+  `UPDATE orders SET status='PAID' WHERE id=? AND status='PENDING'`, if it
   updates 0 rows, someone already delivered it, so stop. This is what makes
   client-polling + a server cron safe to run at the same time.
 - **Check the amount actually paid ≥ the price** before delivering (guards
@@ -118,7 +121,7 @@ interface PaymentAdapter {
 ```
 
 Implement `MoncashAdapter` and `PaymAdapter` against this. Ship a **stub adapter**
-for local dev/tests too — but make the stub **fail closed in production** (a stub
+for local dev/tests too, but make the stub **fail closed in production** (a stub
 payout that "succeeds" in prod would mark money sent without moving it). Gate
 which adapter is live behind env flags / kill switches so you can turn a rail off
 instantly without a deploy.
@@ -138,16 +141,35 @@ your backend: verifyPayment (client poll + cron) → paid?
 ## Quick gotchas (read the reference for the rest)
 
 **MonCash native**
-- OAuth is HTTP **Basic** auth to get a Bearer token; the token expires — cache
+- OAuth is HTTP **Basic** auth to get a Bearer token; the token expires: cache
   and refresh it.
-- The **redirect-back is not confirmation** — `RetrieveOrderPayment` is the
+- The **redirect-back is not confirmation**: `RetrieveOrderPayment` is the
   source of truth (`payment.message === "successful"`).
 - Payouts use the **prefunded** `Transfert` endpoint and need a funded balance.
 
 **Pay'm**
 - Auth header is **`x-access-token`, not `Authorization: Bearer`** (docs are wrong → 401).
-- **NatCash rejects decimal amounts** — always send whole gourdes (`Math.ceil`), min 20 HTG.
-- **No webhook** — poll `paiement-verify`.
+- **NatCash rejects decimal amounts**, always send whole gourdes (`Math.ceil`), min 20 HTG.
+- **Webhooks exist** (added 2026). `X-Webhook-Signature: sha256=<hex>`,
+  HMAC-SHA256 of the **raw JSON body** keyed with `client_secret`. Two events:
+  `transaction.created`, always unpaid, and `transaction.status_changed`, where
+  `new_status: "ok"` means settled. Nothing signs a timestamp, so a delivery can
+  be replayed for ever. That costs nothing if the webhook is only a trigger and
+  `paiement-verify` still makes the money decision, which is the design to
+  choose. Payouts carry the same kind of reference as collections, so check
+  which one arrived before verifying, or you will ask the collection endpoint
+  about a payout id.
+- **`paiement-verify` returns `transaction_id`, not `id_transaction`.** Their
+  documentation says the latter and the live response says the former. Read the
+  documented name and you get `undefined`, with no error, until somebody checks.
+- **A collection reports no fee**, so the provider's cut of a cash-in cannot be
+  known per transaction, only from their statement. Payouts do report theirs.
+- **Payout fees are charged on top of the amount** and drawn from your prepaid
+  float: MonCash 4%, NatCash 3%, Kashpaw 3%. A 3000 HTG payout debits 3120.
+- **Three payouts per recipient per 24 hours**, undocumented, arriving as
+  `429 {"error_code":"RECIPIENT_DAILY_LIMIT"}`. Pass the reason to the customer:
+  a generic failure invites a retry that spends their one-time code and then
+  trips your own rate limiter.
 - The cash-in reference field is misspelled **`refference_id`** (double `f`).
 - Payout is a **3-step HMAC** flow; the prepaid payout account must be
   **activated in the dashboard and funded** or you get `NO_PREPAID_ACCOUNT` / `empty`.
@@ -158,5 +180,5 @@ your backend: verifyPayment (client poll + cron) → paid?
 
 This skill is open source (MIT). If a provider changes its API or you discover a
 new quirk, update the relevant reference file and note the date. Real, tested
-behavior beats the official docs — when they disagree, trust what the live API
+behavior beats the official docs, when they disagree, trust what the live API
 does and document it here.

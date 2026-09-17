@@ -1,7 +1,7 @@
-# Pay'm API — Integration Reference (MonCash · NatCash · Kashpaw)
+# Pay'm API: Integration Reference (MonCash · NatCash · Kashpaw)
 
 Pay'm is an aggregator: one API for **MonCash + NatCash + Kashpaw**, plus a
-signed payout flow. Everything here was verified **live** — there is no sandbox.
+signed payout flow. Everything here was verified **live**: there is no sandbox.
 Where Pay'm's official docs are wrong, this file gives the value that works.
 
 ## Table of contents
@@ -20,7 +20,7 @@ Where Pay'm's official docs are wrong, this file gives the value that works.
 | Item | Value |
 |---|---|
 | Base URL | `https://plopplop.solutionip.app` |
-| Sandbox | ❌ none — test with 20 HTG and a real phone |
+| Sandbox | ❌ none: test with 20 HTG and a real phone |
 | `PAYM_CLIENT_ID` | `pp_...` |
 | `PAYM_CLIENT_SECRET` | 64-char secret, **server-side only** (withdrawal HMAC) |
 
@@ -34,11 +34,12 @@ Where Pay'm's official docs are wrong, this file gives the value that works.
 3. **NatCash rejects decimal amounts.** `montant: 150.15` → `503
    ERR_PARAMETERS_INVALID`. Always send **whole gourdes** (`Math.ceil`). MonCash
    accepts decimals, but round for both.
-4. **No webhook.** Poll `/api/paiement-verify` to learn a payment succeeded —
+4. **Webhooks arrived in 2026**, and polling is still the fallback. Use the
+   webhook as a trigger, then call `/api/paiement-verify` to learn a payment succeeded,
    from the client AND a server cron.
 5. **Cash-in reference field is `refference_id`** (double `f`). It's `reference`
    on the cash-out endpoints. Match exactly.
-6. **Credit exactly once** — unique `reference` + atomic pending→paid claim so
+6. **Credit exactly once**: unique `reference` + atomic pending→paid claim so
    client polling and the cron can't double-deliver.
 
 ---
@@ -63,46 +64,53 @@ Where Pay'm's official docs are wrong, this file gives the value that works.
 
 No auth token needed; send `client_id` in the body.
 
-### 4.1 Create — `POST /api/paiement-marchand`
+### 4.1 Create: `POST /api/paiement-marchand`
 ```json
 { "client_id": "pp_xxx", "refference_id": "ORDER-000123",
   "montant": 200, "payment_method": "moncash" }
 ```
-- `refference_id` — your unique id (double `f`).
-- `montant` — HTG, **whole gourdes**, `>= 20`.
-- `payment_method` — `moncash` | `natcash` | `kashpaw` | `all`.
+- `refference_id`: your unique id (double `f`).
+- `montant`: HTG, **whole gourdes**, `>= 20`.
+- `payment_method`: `moncash` | `natcash` | `kashpaw` | `all`.
 
 → `{ "status": true, "url": "https://.../pay/...", "transaction_id": "PM_..." }`
 Redirect the customer to `url`.
 
 > ⚠️ NatCash shows an **ad page after payment**; this is Pay'm/NatCash-side. There
-> is **no `return_url`** parameter — extra body fields are silently ignored. The
+> is **no `return_url`** parameter: extra body fields are silently ignored. The
 > payment still completes; you detect it via polling.
 
-### 4.2 Verify (poll) — `POST /api/paiement-verify`
+### 4.2 Verify (poll): `POST /api/paiement-verify`
 ```json
 { "client_id": "pp_xxx", "refference_id": "ORDER-000123" }
 ```
-→ `{ "trans_status": "ok", "montant": "200", "id_transaction": "...", "method": "moncash" }`
+→ observed live, 2026-09: `{ "status", "message", "montant", "trans_status",
+  "transaction_id", "refference_id", "date", "heure", "method", "id_client",
+  "toPhone" }`
+
+**Their documentation calls the id `id_transaction`; the live response calls it
+`transaction_id`.** Read the documented name and you get `undefined`, silently.
+There is **no fee field** on a collection, so the provider's cut of a cash-in is
+not knowable per transaction. Payouts do report theirs.
 - `trans_status`: `"no"` = unpaid, `"ok"` = paid.
-- `montant` is a **string** — coerce with `Number()`. Check `>= expectedHtg`.
+- `montant` is a **string**: coerce with `Number()`. Check `>= expectedHtg`.
 - Poll ~every 2.5–3 s from the client after redirect, **and** run a server cron
   (~every 2 min) that re-verifies still-pending orders.
 - Deliver via an **atomic claim** (pending→paid) so client + cron don't double-deliver.
 
 ---
 
-## 5. Cash-out (payout) — signed 3-step flow
+## 5. Cash-out (payout): signed 3-step flow
 
 Only implement if you need to send HTG out. `moncash` / `natcash` only.
 
-### 5.1 Auth — `POST /api/auth/marchand`
+### 5.1 Auth: `POST /api/auth/marchand`
 ```json
 { "client_id": "pp_xxx", "client_secret": "64charsecret" }
 ```
 → `{ "success": true, "token": "<marchand_token>", "expires_in": 300 }` (cache ~5 min).
 
-### 5.2 Signed token — `POST /api/auth/marchand/withdrawal-token`
+### 5.2 Signed token: `POST /api/auth/marchand/withdrawal-token`
 Header **`x-access-token: <marchand_token>`**.
 ```json
 { "amount": 500, "method": "natcash", "recipient": "50912345678",
@@ -120,7 +128,7 @@ const signature = crypto.createHmac("sha256", CLIENT_SECRET).update(payload).dig
 
 → `{ "success": true, "withdrawal_token": "<token>" }`
 
-### 5.3 Execute — `POST /api/withdraw/marchand`
+### 5.3 Execute: `POST /api/withdraw/marchand`
 Header **`x-access-token: <withdrawal_token>`** (the step-2 token). Body must be
 identical to the signed values (minus timestamp/signature):
 ```json
@@ -134,8 +142,8 @@ Status (reconcile before refunding): `POST /api/withdraw/marchand/verify`
 
 ### 5.4 Payout prerequisites (learned the hard way)
 The payout side uses a **separate "compte prépayé"** that must be:
-1. **Activated** in the Pay'm dashboard — else every payout is `400 NO_PREPAID_ACCOUNT`.
-2. **Funded** — an activated-but-empty account returns a vague
+1. **Activated** in the Pay'm dashboard: else every payout is `400 NO_PREPAID_ACCOUNT`.
+2. **Funded**: an activated-but-empty account returns a vague
    `400 {"error_code":"empty","message":"Réessayer dans quelques instants"}`.
    Cash-in collections do not necessarily auto-fund it; confirm with Pay'm.
 
